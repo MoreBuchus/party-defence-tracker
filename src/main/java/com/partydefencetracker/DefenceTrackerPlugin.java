@@ -48,7 +48,7 @@ import net.runelite.client.util.ColorUtil;
 @PluginDescriptor(
 		name = "Party Defence Tracker",
 		description = "Calculates the defence based off party specs",
-		tags = {"party", "defence", "tracker", "boosting", "special"}
+		tags = {"party", "defence", "tracker", "boosting", "special", "counter"}
 )
 @Slf4j
 public class DefenceTrackerPlugin extends Plugin
