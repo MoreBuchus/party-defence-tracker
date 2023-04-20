@@ -1,14 +1,14 @@
 package com.partydefencetracker;
 
-import java.awt.Color;
-import java.awt.image.BufferedImage;
-
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.ui.overlay.infobox.InfoBox;
+
 import javax.inject.Inject;
+import java.awt.*;
+import java.awt.image.BufferedImage;
 
 @ToString
 public class DefenceInfoBox extends InfoBox

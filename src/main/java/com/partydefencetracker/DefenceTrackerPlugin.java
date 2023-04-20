@@ -25,32 +25,42 @@
 package com.partydefencetracker;
 
 import com.google.inject.Provides;
-import java.awt.*;
-import java.util.*;
-import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import net.runelite.api.coords.WorldArea;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.*;
-import net.runelite.api.kit.KitType;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
-import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.party.PartyService;
 import net.runelite.client.party.WSClient;
 import net.runelite.client.plugins.Plugin;
+import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.party.PartyPlugin;
+import net.runelite.client.plugins.specialcounter.SpecialCounterUpdate;
+import net.runelite.client.plugins.specialcounter.SpecialWeapon;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
+import net.runelite.client.util.AsyncBufferedImage;
 import net.runelite.client.util.ColorUtil;
+import net.runelite.client.util.Text;
+
+import javax.inject.Inject;
+import java.awt.*;
+import java.util.List;
+import java.util.*;
 
 @PluginDescriptor(
-		name = "Party Defence Tracker",
-		description = "Calculates the defence based off party specs",
-		tags = {"party", "defence", "tracker", "boosting", "special", "counter"}
+	name = "Party Defence Tracker",
+	description = "Calculates the defence based off party specs",
+	tags = {"party", "defence", "tracker", "boosting", "special", "counter"}
 )
 @Slf4j
+@PluginDependency(PartyPlugin.class)
 public class DefenceTrackerPlugin extends Plugin
 {
 	@Inject
@@ -77,35 +87,64 @@ public class DefenceTrackerPlugin extends Plugin
 	@Inject
 	private InfoBoxManager infoBoxManager;
 
-	public String boss = "";
-	public String specWep = "";
-	public double bossDef = -1;
-	public DefenceInfoBox box = null;
+	@Inject
+	private ItemManager itemManager;
+
+	@Inject
+	private CoXLayoutSolver layoutSolver;
+
+	private String boss = "";
+	private int bossIndex = 0;
+	private double bossDef = -1;
+
+	private DefenceInfoBox box = null;
 	private VulnerabilityInfoBox vulnBox = null;
-	public SpritePixels vuln = null;
-	public boolean vulnHit;
-	public boolean isInCm = false;
-	public ArrayList<String> bossList = new ArrayList<>(Arrays.asList(
-			"Abyssal Sire", "Callisto", "Cerberus", "Chaos Elemental", "Corporeal Beast", "General Graardor", "Giant Mole",
-			"Kalphite Queen", "King Black Dragon", "K'ril Tsutsaroth", "Sarachnis", "Venenatis", "Vet'ion", "Vet'ion Reborn",
-			"The Maiden of Sugadinti", "Pestilent Bloat", "Nylocas Vasilias", "Sotetseg", "Xarpus",
-			"Great Olm (Left claw)", "Tekton", "Tekton (enraged)"));
-	public boolean hmXarpus = false;
+	private SpritePixels vuln = null;
+	private RedKerisInfoBox redKerisBox = null;
+	private AsyncBufferedImage redKeris = null;
 
-	private static final int MAIDEN_REGION = 12613;
-	private static final int BLOAT_REGION = 13125;
-	private static final int NYLOCAS_REGION = 13122;
-	private static final int SOTETSEG_REGION = 13123;
-	private static final int SOTETSEG_MAZE_REGION = 13379;
-	private static final int XARPUS_REGION = 12612;
-	private static final int VERZIK_REGION = 12611;
-	boolean bloatDown = false;
+	//Copied from special counter
+	// expected tick the hitsplat will happen on
+	private int hitsplatTick;
+	// most recent hitsplat and the target it was on
+	private Hitsplat lastSpecHitsplat;
+	private NPC lastSpecTarget;
 
-	private int ATTACK;
-	private int STRENGTH;
-	private int DEFENCE;
-	private int RANGED;
-	private int MAGIC;
+	private final Set<Integer> interactedNpcIndexes = new HashSet<>();
+
+	private boolean hmXarpus = false;
+	private boolean bloatDown = false;
+
+	private boolean inCm;
+	private boolean coxModeSet = false;
+
+	private QueuedNpc queuedNpc = null;
+
+	Map<String, ArrayList<Integer>> bossRegions = new HashMap<String, ArrayList<Integer>>()
+	{{
+		put("The Maiden of Sugadinti", new ArrayList<>(Collections.singletonList(12613)));
+		put("Pestilent Bloat", new ArrayList<>(Collections.singletonList(13125)));
+		put("Nylocas Vasilias", new ArrayList<>(Collections.singletonList(13122)));
+		put("Sotetseg", new ArrayList<>(Arrays.asList(13123, 13379)));
+		put("Xarpus", new ArrayList<>(Collections.singletonList(12612)));
+		put("Zebak", new ArrayList<>(Collections.singletonList(15700)));
+		put("Kephri", new ArrayList<>(Collections.singletonList(14164)));
+		put("Ba-Ba", new ArrayList<>(Collections.singletonList(15188)));
+		put("<col=00ffff>Obelisk</col>", new ArrayList<>(Collections.singletonList(15184)));
+		put("Tumeken's Warden", new ArrayList<>(Collections.singletonList(15696)));
+		put("Elidinis' Warden", new ArrayList<>(Collections.singletonList(15696)));
+		put("Alchemical Hydra", new ArrayList<>(Collections.singletonList(5536)));
+		put("Nex", new ArrayList<>(Collections.singletonList(11601)));
+		put("Phantom Muspah", new ArrayList<>(Collections.singletonList(11330)));
+		put("Skotizo", new ArrayList<>(Collections.singletonList(9048)));
+		put("TzKal-Zuk", new ArrayList<>(Collections.singletonList(9043)));
+		put("TzTok-Jad", new ArrayList<>(Collections.singletonList(9551)));
+		put("Vorkath", new ArrayList<>(Collections.singletonList(9023)));
+		put("Zulrah", new ArrayList<>(Arrays.asList(9007, 9008)));
+		put("Akkha's Shadow", new ArrayList<>(Collections.singletonList(14676)));
+	}};
+
+	private final List<String> coxBosses = Arrays.asList("Great Olm (Left claw)", "Ice demon", "Skeletal Mystic", "Tekton", "Vasa Nistirio");
 
 	@Provides
 	DefenceTrackerConfig provideConfig(ConfigManager configManager)
@@ -117,126 +156,139 @@ public class DefenceTrackerPlugin extends Plugin
 	{
 		reset();
 		wsClient.registerMessage(DefenceTrackerUpdate.class);
+		wsClient.registerMessage(RedKerisUpdate.class);
 	}
 
 	protected void shutDown() throws Exception
 	{
 		reset();
 		wsClient.unregisterMessage(DefenceTrackerUpdate.class);
+		wsClient.unregisterMessage(RedKerisUpdate.class);
+		lastSpecTarget = null;
+		lastSpecHitsplat = null;
 	}
 
 	protected void reset()
 	{
 		infoBoxManager.removeInfoBox(box);
 		infoBoxManager.removeInfoBox(vulnBox);
+		infoBoxManager.removeInfoBox(redKerisBox);
 		boss = "";
+		bossIndex = 0;
 		bossDef = -1;
-		specWep = "";
 		box = null;
 		vulnBox = null;
+		redKeris = null;
+		redKerisBox = null;
 		vuln = null;
-		vulnHit = false;
-		isInCm = config.cm();
 		bloatDown = false;
-		ATTACK = -1;
-		STRENGTH = -1;
-		DEFENCE = -1;
-		RANGED = -1;
-		MAGIC = -1;
-	}
-
-	@Subscribe
-	public void onConfigChanged(ConfigChanged e)
-	{
-		isInCm = config.cm();
+		queuedNpc = null;
+		coxModeSet = false;
 	}
 
 	@Subscribe
 	public void onAnimationChanged(AnimationChanged e)
 	{
-		if (e.getActor() != null && client.getLocalPlayer() != null && e.getActor().getName() != null)
+		int animation = e.getActor().getAnimation();
+
+		if (e.getActor() instanceof Player && e.getActor() != null && client.getLocalPlayer() != null && e.getActor().getName() != null)
 		{
-			int animation = e.getActor().getAnimation();
 			if (e.getActor().getName().equals(client.getLocalPlayer().getName()))
 			{
-				if (animation == 1378)
-				{
-					specWep = "dwh";
-				}
-				else if (animation == 7642 || animation == 7643)
-				{
-					specWep = "bgs";
-				}
-				else if(animation == 2890)
-				{
-					specWep = "arclight";
-				}
-				else
-				{
-					specWep = "";
-				}
-
-				if (animation == 1816 && boss.equalsIgnoreCase("sotetseg") && (isInOverWorld() || isInUnderWorld()))
+				if (animation == 1816 && boss.equalsIgnoreCase("sotetseg") && inBossRegion())
 				{
 					infoBoxManager.removeInfoBox(box);
-					bossDef = 250;
+					bossDef = 200;
 				}
 			}
 		}
 
-		if (e.getActor() instanceof NPC && e.getActor().getName() != null && e.getActor().getName().equalsIgnoreCase("pestilent bloat"))
+		if (e.getActor() instanceof NPC && e.getActor().getName() != null)
 		{
-			bloatDown = e.getActor().getAnimation() == 8082;
+			if (e.getActor().getName().equalsIgnoreCase("pestilent bloat"))
+			{
+				bloatDown = animation == 8082;
+			}
+			//Enraged Wardens
+			else if (animation == 9685 && (boss.equalsIgnoreCase("Tumeken's Warden") || boss.equalsIgnoreCase("Elidinis' Warden")))
+			{
+				infoBoxManager.removeInfoBox(box);
+				bossDef = 60;
+			}
 		}
 	}
 
 	@Subscribe
 	public void onGameTick(GameTick e)
 	{
-		if (client.getLocalPlayer() != null && MAGIC == -1)
+		if (partyService.isInParty())
 		{
-			initStatXp();
+			for (NPC n : client.getNpcs())
+			{
+				if (n != null && n.getName() != null && (n.getName().equalsIgnoreCase(boss) || (n.getName().contains("Tekton") && boss.equalsIgnoreCase("Tekton")))
+					&& (n.isDead() || n.getHealthRatio() == 0))
+				{
+					partyService.send(new DefenceTrackerUpdate(n.getName(), n.getIndex(), false, false, client.getWorld()));
+				}
+			}
 		}
 
-		for (NPC n : client.getNpcs())
+		layoutSolver.onGameTick(e);
+		updateRedKerisInfobox();
+
+		if (!coxModeSet && client.getVarbitValue(Varbits.IN_RAID) == 1)
 		{
-			if (n != null && n.getName() != null && n.getName().equals(boss) && (n.isDead() || n.getHealthRatio() == 0))
+			inCm = layoutSolver.isCM();
+			coxModeSet = true;
+		}
+
+		//Copied from special counter
+		if (lastSpecHitsplat != null && lastSpecTarget != null)
+		{
+			if (lastSpecHitsplat.getAmount() > 0)
 			{
-				UpdateBoss(boss, "", 0, false);
+				redKerisHit(lastSpecHitsplat, lastSpecTarget);
 			}
+
+			lastSpecHitsplat = null;
+			lastSpecTarget = null;
 		}
 	}
 
 	@Subscribe
-	public void onHitsplatApplied(HitsplatApplied e)
+	public void onHitsplatApplied(HitsplatApplied hitsplatApplied)
 	{
-		if (!(e.getActor() instanceof NPC))
+		//Copied from special counter
+		Actor target = hitsplatApplied.getActor();
+		Hitsplat hitsplat = hitsplatApplied.getHitsplat();
+		// Ignore all hitsplats other than mine
+		if (!hitsplat.isMine() || target == client.getLocalPlayer())
 		{
 			return;
 		}
 
-		NPC npc = (NPC) e.getActor();
-
-		if (npc.getName().contains("Maiden") || npc.getName().contains("Sotetseg") || npc.getName().contains("Xarpus") || npc.getName().contains("Nylocas Vasilias"))
+		// only check hitsplats applied to the target we are specing
+		if (lastSpecTarget == null || target != lastSpecTarget)
 		{
 			return;
 		}
 
-		if (!specWep.equals("") && e.getHitsplat().isMine() && e.getActor() instanceof NPC && e.getActor() != null
-				&& e.getActor().getName() != null && bossList.contains(e.getActor().getName()))
-		{
-			String bossName;
-			if (e.getActor().getName().contains("Tekton"))
-			{
-				bossName = "Tekton";
-			}
-			else
-			{
-				bossName = e.getActor().getName();
-			}
+		NPC npc = (NPC) target;
+		int npcIndex = npc.getIndex();
 
-			UpdateBoss(bossName, specWep, e.getHitsplat().getAmount(), true);
-			specWep = "";
+		// If this is a new NPC reset the counters
+		if (!interactedNpcIndexes.contains(npcIndex))
+		{
+			infoBoxManager.removeInfoBox(redKerisBox);
+			redKerisBox=null;
+			interactedNpcIndexes.add(npcIndex);
+		}
+
+		// The weapon hitsplat is always last, after other hitsplats which occur on the same tick such as from
+		// venge or thralls.
+		if (hitsplatTick == client.getTickCount())
+		{
+			lastSpecHitsplat = hitsplat;
 		}
 	}
 
@@ -244,33 +296,116 @@ public class DefenceTrackerPlugin extends Plugin
 	public void onNpcSpawned(NpcSpawned e)
 	{
 		NPC npc = e.getNpc();
-		hmXarpus = npc.getId() >= 10770 && npc.getId() <= 10772;
+		if (npc.getName() != null && BossInfo.getBoss(npc.getName()) != null)
+		{
+			hmXarpus = npc.getId() >= 10770 && npc.getId() <= 10772;
+		}
+	}
+
+	@Subscribe
+	public void onRedKerisUpdate(RedKerisUpdate event)
+	{
+		//Copied from this plugin: onSpecialCounterUpdate()
+		int world = event.getWorld();
+		int index = event.getNpcIndex();
+		NPC npc = client.getCachedNPCs()[index];
+
+		clientThread.invoke(() ->
+		{
+			if ((npc != null && npc.getName() != null && BossInfo.getBoss(npc.getName()) != null) || bossIndex == index)
+			{
+				if (bossIndex != index)
+				{
+					String bossName = npc.getName();
+
+					if (!boss.equalsIgnoreCase(bossName) || (bossName.contains("Tekton") && !boss.equalsIgnoreCase("Tekton")))
+					{
+						baseDefence(bossName, index);
+						//calculateQueue(index);
+					}
+				}
+
+				if (config.redKeris() && event.getHit()>0 && inBossRegion() && world == client.getWorld())
+				{
+					initRedKerisInfobox();
+				}
+			} /*
+			else
+			{
+				if (queuedNpc == null || queuedNpc.index != index)
+				{
+					queuedNpc = new QueuedNpc(index);
+				}
+				queuedNpc.queuedSpecs.add(new QueuedNpc.QueuedSpec(weapon, hit));
+			} */
+		});
 	}
 
 	@Subscribe
 	public void onActorDeath(ActorDeath e)
 	{
-		if (e.getActor() instanceof NPC && e.getActor().getName() != null && client.getLocalPlayer() != null)
+		if (e.getActor() instanceof NPC && e.getActor().getName() != null && client.getLocalPlayer() != null && partyService.isInParty())
 		{
-			if (e.getActor().getName().equals(boss) || (e.getActor().getName().contains("Tekton") && boss.equals("Tekton")))
+			if (e.getActor().getName().equalsIgnoreCase(boss) || (e.getActor().getName().contains("Tekton") && boss.equalsIgnoreCase("Tekton")))
 			{
-				UpdateBoss(boss, "", 0, false);
+				partyService.send(new DefenceTrackerUpdate(e.getActor().getName(), ((NPC) e.getActor()).getIndex(), false, false, client.getWorld()));
 			}
 		}
 	}
 
-	public void UpdateBoss(String bossName, String weapon, int hit, boolean alive)
+	@Subscribe
+	public void onSpecialCounterUpdate(SpecialCounterUpdate e)
 	{
-		partyService.send(new DefenceTrackerUpdate(bossName, weapon, hit, alive, client.getWorld()));
+		int hit = e.getHit();
+		int world = e.getWorld();
+		SpecialWeapon weapon = e.getWeapon();
+		int index = e.getNpcIndex();
+		NPC npc = client.getCachedNPCs()[index];
+
+		clientThread.invoke(() ->
+		{
+			if ((npc != null && npc.getName() != null && BossInfo.getBoss(npc.getName()) != null) || bossIndex == index)
+			{
+				if (bossIndex != index)
+				{
+					String bossName = npc.getName();
+
+					if (!boss.equalsIgnoreCase(bossName) || (bossName.contains("Tekton") && !boss.equalsIgnoreCase("Tekton")))
+					{
+						baseDefence(bossName, index);
+						calculateQueue(index);
+					}
+				}
+
+				if (inBossRegion() && world == client.getWorld())
+				{
+					calculateDefence(weapon, hit);
+					updateDefInfobox();
+
+					/*
+					if(e.getWeapon() == SpecialWeapon.KERIS_PARTISAN_OF_CORRUPTION)
+					{
+						initRedKerisInfobox();
+					}
+					*/
+
+				}
+			}
+			else
+			{
+				if (queuedNpc == null || queuedNpc.index != index)
+				{
+					queuedNpc = new QueuedNpc(index);
+				}
+				queuedNpc.queuedSpecs.add(new QueuedNpc.QueuedSpec(weapon, hit));
+			}
+		});
 	}
 
 	@Subscribe
 	public void onDefenceTrackerUpdate(DefenceTrackerUpdate e)
 	{
-		String weapon = e.getSpecWeapon();
-		int hit = e.getHit();
 		int world = e.getWorld();
-
 		clientThread.invoke(() ->
 		{
 			if (!e.isAlive())
@@ -279,148 +414,13 @@ public class DefenceTrackerPlugin extends Plugin
 			}
 			else
 			{
-				if (!boss.equals(e.getBossName()))
+				if (!boss.equalsIgnoreCase(e.getBoss()) || (e.getBoss().contains("Tekton") && !boss.equalsIgnoreCase("Tekton")))
 				{
-					bossDef = -1;
-					boss = e.getBossName();
+					baseDefence(e.getBoss(), e.getIndex());
+					calculateQueue(e.getIndex());
 				}
 
-				if (world != client.getWorld())
-				{
-					return;
-				}
-
-				if (((boss.equals("Tekton") || boss.contains("Great Olm")) && client.getVarbitValue(Varbits.IN_RAID) != 1) ||
-						((boss.contains("The Maiden of Sugadinti") || boss.contains("Pestilent Bloat") || boss.contains("Nylocas Vasilias")
-								|| boss.contains("Sotetseg") || boss.contains("Xarpus")) && client.getVarbitValue(Varbits.THEATRE_OF_BLOOD) != 2))
-				{
-					return;
-				}
-
-				if (bossDef == -1)
-				{
-					switch (boss)
-					{
-						case "Abyssal Sire":
-						case "Sotetseg":
-						case "General Graardor":
-							bossDef = 250;
-							break;
-						case "Callisto":
-							bossDef = 440;
-							break;
-						case "Cerberus":
-							bossDef = 110;
-							break;
-						case "Chaos Elemental":
-						case "K'ril Tsutsaroth":
-							bossDef = 270;
-							break;
-						case "Corporeal Beast":
-							bossDef = 310;
-							break;
-						case "Giant Mole":
-						case "The Maiden of Sugadinti":
-							bossDef = 200;
-							break;
-						case "Kalphite Queen":
-							bossDef = 300;
-							break;
-						case "King Black Dragon":
-							bossDef = 240;
-							break;
-						case "Sarachnis":
-							bossDef = 150;
-							break;
-						case "Venenatis":
-							bossDef = 490;
-							break;
-						case "Vet'ion":
-						case "Vet'ion Reborn":
-							bossDef = 395;
-							break;
-						case "Pestilent Bloat":
-							bossDef = 100;
-							break;
-						case "Nylocas Vasilias":
-							bossDef = 50;
-							break;
-						case "Xarpus":
-							if (hmXarpus)
-							{
-								bossDef = 200;
-							}
-							else
-							{
-								bossDef = 250;
-							}
-							break;
-						case "Great Olm (Left claw)":
-							bossDef = 175 * (1 + (.01 * (client.getVarbitValue(5424) - 1)));
-
-							if (isInCm)
-							{
-								bossDef = bossDef * 1.5;
-							}
-							break;
-						case "Tekton":
-							bossDef = 205 * (1 + (.01 * (client.getVarbitValue(5424) - 1)));
-
-							if (isInCm)
-							{
-								bossDef = bossDef * 1.2;
-							}
-							break;
-					}
-				}
-
-				if (weapon.equals("dwh"))
-				{
-					if (hit == 0)
-					{
-						if (client.getVarbitValue(Varbits.IN_RAID) == 1 && boss.equals("Tekton"))
-						{
-							bossDef -= bossDef * .05;
-						}
-					}
-					else
-					{
-						bossDef -= bossDef * .30;
-					}
-				}
-				else if (weapon.equals("bgs"))
-				{
-					if (hit == 0)
-					{
-						if (client.getVarbitValue(Varbits.IN_RAID) == 1 && boss.equals("Tekton"))
-						{
-							bossDef -= 10;
-						}
-					}
-					else
-					{
-						if (boss.equals("Corporeal Beast") || (isInBloat() && boss.equals("Pestilent Bloat") && !bloatDown))
-						{
-							bossDef -= hit * 2;
-						}
-						else
-						{
-							bossDef -= hit;
-						}
-					}
-				}
-				else if (weapon.equals("arclight") && hit > 0)
-				{
-					if (boss.equals("K'ril Tsutsaroth"))
-					{
-						bossDef -= bossDef * .10;
-					}
-					else
-					{
-						bossDef -= bossDef * .05;
-					}
-				}
-				else if (weapon.equals("vuln"))
+				if (inBossRegion() && world == client.getWorld())
 				{
 					if (config.vulnerability())
 					{
@@ -428,220 +428,285 @@ public class DefenceTrackerPlugin extends Plugin
 						IndexDataBase sprite = client.getIndexSprites();
 						vuln = Objects.requireNonNull(client.getSprites(sprite, 56, 0))[0];
 						vulnBox = new VulnerabilityInfoBox(vuln.toBufferedImage(), this);
-						vulnBox.setTooltip(ColorUtil.wrapWithColorTag(boss, Color.WHITE));
+						vulnBox.setTooltip(ColorUtil.wrapWithColorTag(Text.removeTags(boss), Color.WHITE));
 						infoBoxManager.addInfoBox(vulnBox);
 					}
-					vulnHit = true;
-					bossDef -= bossDef * .1;
-				}
 
-				if (bossDef < 0)
-				{
-					bossDef = 0;
+					bossDef -= bossDef * .1;
+
+					updateDefInfobox();
 				}
-				infoBoxManager.removeInfoBox(box);
-				box = new DefenceInfoBox(skillIconManager.getSkillImage(Skill.DEFENCE), this, Math.round(bossDef), config);
-				box.setTooltip(ColorUtil.wrapWithColorTag(boss, Color.WHITE));
-				infoBoxManager.addInfoBox(box);
 			}
 		});
 	}
 
 	@Subscribe
+	public void onChatMessage(ChatMessage event)
+	{
+		if (event.getType() == ChatMessageType.FRIENDSCHATNOTIFICATION)
+		{
+			if (Text.removeTags(event.getMessage()).equals("The raid has begun!") && client.getVarbitValue(Varbits.IN_RAID) == 1)
+			{
+				// Determine if in challege mode or regular
+				inCm = layoutSolver.isCM();
+				coxModeSet = true;
+			}
+		}
+	}
+
+	@Subscribe
 	private void onVarbitChanged(VarbitChanged e)
 	{
-		if ((client.getVarbitValue(Varbits.IN_RAID) != 1 && (boss.equals("Tekton") || boss.equals("Great Olm (Left claw)")))
-				|| (boss.equals("The Maiden of Sugadinti") && !isInMaiden()) || (boss.equals("Pestilent Bloat") && !isInBloat())
-				|| (boss.equals("Nylocas Vasilias") && !isInNylo()) || (boss.equals("Sotetseg") && !isInOverWorld() && !isInUnderWorld())
-				|| (boss.equals("Xarpus") && !isInXarpus()))
+		if (!inBossRegion())
 		{
 			reset();
 		}
+
+		if (client.getVarbitValue(Varbits.IN_RAID) != 1 && isInCoxLobby())
+		{
+			inCm = false;
+			coxModeSet = false;
+		}
+
+		layoutSolver.onVarbitChanged(e);
+
+		//Copied rest of this from special counter plugin
+		if (!usingRedKeris())
+		{
+			return;
+		}
+
+		if (e.getVarpId() != VarPlayer.SPECIAL_ATTACK_PERCENT)
+		{
+			return;
+		}
+
+		// This event runs prior to player and npc updating, making getInteracting() too early to call..
+		// defer this with invokeLater(), but note that this will run after incrementing the server tick counter
+		// so we capture the current server tick counter here for use in computing the final hitsplat tick
+		final int serverTicks = client.getTickCount();
+		clientThread.invokeLater(() ->
+		{
+			Actor target = client.getLocalPlayer().getInteracting();
+			lastSpecTarget = target instanceof NPC ? (NPC) target : null;
+			hitsplatTick = serverTicks + 1; //red keris has hit delay 1
+			log.debug("Red keris used - server cycle {} hitsplat cycle {}", serverTicks, hitsplatTick);
+		});
 	}
 
 	@Subscribe
 	public void onGraphicChanged(GraphicChanged e)
 	{
 		//85 = splash
-		if (e.getActor().getName() != null && e.getActor().getGraphic() == 169)
+		if (e.getActor() instanceof NPC && e.getActor().getName() != null && e.getActor().getGraphic() == 169 && partyService.isInParty())
 		{
-			if (bossList.contains(e.getActor().getName()))
+			if (BossInfo.getBoss(e.getActor().getName()) != null)
 			{
-				if (e.getActor().getName().contains("Tekton"))
+				partyService.send(new DefenceTrackerUpdate(e.getActor().getName(), ((NPC) e.getActor()).getIndex(), true, false, client.getWorld()));
+			}
+		}
+	}
+
+	@Subscribe
+	protected void onGameStateChanged(GameStateChanged e)
+	{
+		layoutSolver.onGameStateChanged(e);
+	}
+
+	private void baseDefence(String bossName, int index)
+	{
+		boss = bossName;
+		bossIndex = index;
+		bossDef = BossInfo.getBaseDefence(boss);
+
+		if (boss.equalsIgnoreCase("Xarpus") && hmXarpus)
+		{
+			bossDef = 200;
+		}
+		else if (coxBosses.contains(boss))
+		{
+			bossDef = bossDef * (1 + (.01 * (client.getVarbitValue(Varbits.RAID_PARTY_SIZE) - 1)));
+			if (inCm)
+			{
+				bossDef = bossDef * (boss.contains("Tekton") ? 1.2 : 1.5);
+			}
+		}
+	}
+
+	private void calculateDefence(SpecialWeapon weapon, int hit)
+	{
+		if (weapon == SpecialWeapon.DRAGON_WARHAMMER)
+		{
+			if (hit == 0)
+			{
+				if (client.getVarbitValue(Varbits.IN_RAID) == 1 && boss.equalsIgnoreCase("Tekton"))
 				{
-					boss = "Tekton";
+					bossDef -= bossDef * .05;
+				}
+			}
+			else
+			{
+				bossDef -= bossDef * .30;
+			}
+		}
+		else if (weapon == SpecialWeapon.BANDOS_GODSWORD)
+		{
+			if (hit == 0)
+			{
+				if (client.getVarbitValue(Varbits.IN_RAID) == 1 && boss.equalsIgnoreCase("Tekton"))
+				{
+					bossDef -= 10;
+				}
+			}
+			else
+			{
+				if (boss.equalsIgnoreCase("Corporeal Beast") || (inBossRegion() && boss.equalsIgnoreCase("Pestilent Bloat") && !bloatDown))
+				{
+					bossDef -= hit * 2;
 				}
 				else
 				{
-					boss = e.getActor().getName();
+					bossDef -= hit;
 				}
-
-				UpdateBoss(boss, "vuln", 0, true);
 			}
+		}
+		else if ((weapon == SpecialWeapon.ARCLIGHT || weapon == SpecialWeapon.DARKLIGHT) && hit > 0)
+		{
+			if (boss.equalsIgnoreCase("K'ril Tsutsaroth") || boss.equalsIgnoreCase("Abyssal Sire"))
+			{
+				bossDef -= BossInfo.getBaseDefence(boss) * .10;
+			}
+			else
+			{
+				bossDef -= BossInfo.getBaseDefence(boss) * .05;
+			}
+		}
+		else if (weapon == SpecialWeapon.BARRELCHEST_ANCHOR)
+		{
+			bossDef -= hit * .10;
+		}
+		else if (weapon == SpecialWeapon.BONE_DAGGER || weapon == SpecialWeapon.DORGESHUUN_CROSSBOW)
+		{
+			bossDef -= hit;
+		}
+
+		if (boss.equalsIgnoreCase("Sotetseg") && bossDef < 100)
+		{
+			bossDef = 100;
+		}
+		else if (bossDef < 0)
+		{
+			bossDef = 0;
 		}
 	}
 
-	@Subscribe
-	public void onFakeXpDrop(FakeXpDrop event) throws InterruptedException
+	private void calculateQueue(int index)
 	{
-		int xpdiff = event.getXp();
-		String skill = event.getSkill().toString();
-		if (!skill.equals("RANGED") && !skill.equals("MAGIC") && !skill.equals("STRENGTH") && !skill.equals("ATTACK") && !skill.equals("DEFENCE"))
+		if (queuedNpc != null)
+		{
+			if (queuedNpc.index == index)
+			{
+				for (QueuedNpc.QueuedSpec spec : queuedNpc.queuedSpecs)
+				{
+					calculateDefence(spec.weapon, spec.hit);
+				}
+			}
+			queuedNpc = null;
+		}
+	}
+
+	private void updateDefInfobox()
+	{
+		infoBoxManager.removeInfoBox(box);
+		box = new DefenceInfoBox(skillIconManager.getSkillImage(Skill.DEFENCE), this, Math.round(bossDef), config);
+		box.setTooltip(ColorUtil.wrapWithColorTag(boss, Color.WHITE));
+		infoBoxManager.addInfoBox(box);
+	}
+
+	private void updateRedKerisInfobox()
+	{
+		if (redKerisBox==null)
 		{
 			return;
 		}
 
-		switch (skill)
+		infoBoxManager.removeInfoBox(redKerisBox);
+
+		if (redKerisBox.getTimer()==1) //Delete infobox, the effect is over
 		{
-			case "MAGIC":
-				xpdiff = event.getXp() - MAGIC;
-				MAGIC = event.getXp();
-				break;
-			case "RANGED":
-				xpdiff = event.getXp() - RANGED;
-				RANGED = event.getXp();
-				break;
-			case "STRENGTH":
-				xpdiff = event.getXp() - STRENGTH;
-				STRENGTH = event.getXp();
-				break;
-			case "ATTACK":
-				xpdiff = event.getXp() - ATTACK;
-				ATTACK = event.getXp();
-				break;
-			case "DEFENCE":
-				xpdiff = event.getXp() - DEFENCE;
-				DEFENCE = event.getXp();
-				break;
+			redKerisBox=null;
 		}
 
-		processXpDrop(String.valueOf(xpdiff), skill);
+		redKeris = itemManager.getImage(ItemID.KERIS_PARTISAN_OF_CORRUPTION); //May not load image properly because AsyncBufferedImage
+		redKerisBox.setTimer(redKerisBox.getTimer()-1);
+		redKerisBox.setTooltip(ColorUtil.wrapWithColorTag(Text.removeTags(boss), Color.WHITE));
+		infoBoxManager.addInfoBox(redKerisBox);
 	}
 
-	@Subscribe
-	public void onStatChanged(StatChanged event) throws InterruptedException
+	private void initRedKerisInfobox()
 	{
-		int xpdiff = 0;
-		String skill = event.getSkill().toString();
-		if (!skill.equals("RANGED") && !skill.equals("MAGIC") && !skill.equals("STRENGTH") && !skill.equals("ATTACK") && !skill.equals("DEFENCE"))
+		if(redKerisBox!=null)
+		{
+			infoBoxManager.removeInfoBox(redKerisBox);
+		}
+		redKeris = itemManager.getImage(ItemID.KERIS_PARTISAN_OF_CORRUPTION); //May not load image properly because AsyncBufferedImage
+		redKerisBox = new RedKerisInfoBox(redKeris, this, 9, config);
+		infoBoxManager.addInfoBox(redKerisBox);
+	}
+
+	private boolean inBossRegion()
+	{
+		if (client.getLocalPlayer() != null && bossRegions.containsKey(boss))
+		{
+			WorldPoint wp = WorldPoint.fromLocalInstance(client, client.getLocalPlayer().getLocalLocation());
+			if (wp != null)
+			{
+				return bossRegions.get(boss).contains(wp.getRegionID());
+			}
+		}
+		return client.getVarbitValue(Varbits.IN_RAID) == 1 || !coxBosses.contains(boss);
+	}
+
+	public boolean isInCoxLobby()
+	{
+		return client.getMapRegions() != null && client.getMapRegions().length > 0 && Arrays.stream(client.getMapRegions()).anyMatch((s) -> s == 4919);
+	}
+
+	public void redKerisHit(Hitsplat hitsplat, NPC target) //Copied code from special counter
+	{
+		if(!usingRedKeris())
 		{
 			return;
 		}
 
-		switch (skill)
+		int hit = hitsplat.getAmount();
+		int localPlayerId = client.getLocalPlayer().getId();
+
+		log.debug("Red keris special attack hitsplat {}", hitsplat.getAmount());
+
+		if (partyService.isInParty())
 		{
-			case "MAGIC":
-				xpdiff = event.getXp() - MAGIC;
-				MAGIC = event.getXp();
-				break;
-			case "RANGED":
-				xpdiff = event.getXp() - RANGED;
-				RANGED = event.getXp();
-				break;
-			case "STRENGTH":
-				xpdiff = event.getXp() - STRENGTH;
-				STRENGTH = event.getXp();
-				break;
-			case "ATTACK":
-				xpdiff = event.getXp() - ATTACK;
-				ATTACK = event.getXp();
-				break;
-			case "DEFENCE":
-				xpdiff = event.getXp() - DEFENCE;
-				DEFENCE = event.getXp();
-				break;
-		}
-
-		processXpDrop(String.valueOf(xpdiff), skill);
-	}
-
-	private void processXpDrop(String xpDrop, String skill) throws InterruptedException
-	{
-		int damage = 0;
-		int weaponUsed = Objects.requireNonNull(Objects.requireNonNull(client.getLocalPlayer()).getPlayerComposition()).getEquipmentId(KitType.WEAPON);
-		boolean isDWH = (weaponUsed == ItemID.DRAGON_WARHAMMER);
-		boolean isBGS = (weaponUsed == ItemID.BANDOS_GODSWORD || weaponUsed == ItemID.BANDOS_GODSWORD_OR);
-		boolean isSpecWeapon = isDWH || isBGS;
-		Actor interacted = client.getLocalPlayer().getInteracting();
-		String bossName = "";
-		if (interacted instanceof NPC)
-		{
-			bossName = interacted.getName();
-		}
-
-		if (bossName != null && !(bossName.contains("Maiden") || bossName.contains("Sotetseg") || bossName.contains("Xarpus") || bossName.contains("Nylocas Vasilias")))
-		{
-			return;
-		}
-
-		if (bossList.contains(bossName))
-		{
-			switch (skill)
-			{
-				case "ATTACK":
-				case "STRENGTH":
-				case "DEFENCE":
-					if (isSpecWeapon)
-					{
-						damage = (int) (Integer.parseInt(xpDrop) / 4.0);
-					}
-					break;
-			}
-
-			if (isDWH)
-			{
-				specWep = "dwh";
-			}
-			else if (isBGS)
-			{
-				specWep = "bgs";
-			}
-
-			UpdateBoss(bossName, specWep, damage, true);
+			final int npcIndex = target.getIndex();
+			final RedKerisUpdate redKerisUpdate = new RedKerisUpdate(npcIndex, hit, client.getWorld(), localPlayerId);
+			partyService.send(redKerisUpdate);
+			log.debug("Red keris in party check");
 		}
 	}
 
-	private boolean isInMaiden()
+	private boolean usingRedKeris()
 	{
-		return client.getMapRegions().length > 0 && client.getMapRegions()[0] == MAIDEN_REGION;
-	}
+		ItemContainer equipment = client.getItemContainer(InventoryID.EQUIPMENT);
+		if (equipment == null)
+		{
+			return false;
+		}
 
-	private boolean isInBloat()
-	{
-		return client.getMapRegions().length > 0 && client.getMapRegions()[0] == BLOAT_REGION;
-	}
+		Item weapon = equipment.getItem(EquipmentInventorySlot.WEAPON.getSlotIdx());
+		if (weapon == null)
+		{
+			return false;
+		}
 
-	private boolean isInNylo()
-	{
-		return client.getMapRegions().length > 0 && client.getMapRegions()[0] == NYLOCAS_REGION;
-	}
-
-	private boolean isInOverWorld()
-	{
-		return client.getMapRegions().length > 0 && client.getMapRegions()[0] == SOTETSEG_REGION;
-	}
-
-	private boolean isInUnderWorld()
-	{
-		return client.getMapRegions().length > 0 && client.getMapRegions()[0] == SOTETSEG_MAZE_REGION;
-	}
-
-	private boolean isInXarpus()
-	{
-		return client.getMapRegions().length > 0 && client.getMapRegions()[0] == XARPUS_REGION;
-	}
-
-	private boolean isInVerzik()
-	{
-		return client.getMapRegions().length > 0 && client.getMapRegions()[0] == VERZIK_REGION;
-	}
-
-	private void initStatXp()
-	{
-		ATTACK = client.getSkillExperience(Skill.ATTACK);
-		STRENGTH = client.getSkillExperience(Skill.STRENGTH);
-		DEFENCE = client.getSkillExperience(Skill.DEFENCE);
-		RANGED = client.getSkillExperience(Skill.RANGED);
-		MAGIC = client.getSkillExperience(Skill.MAGIC);
+		return weapon.getId() == ItemID.KERIS_PARTISAN_OF_CORRUPTION;
 	}
 }

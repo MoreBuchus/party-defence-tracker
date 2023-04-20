@@ -1,5 +1,7 @@
+package com.partydefencetracker;
+
 /*
- * Copyright (c) 2022, Buchus <http://github.com/MoreBuchus>
+ * Copyright (c) 2019, Trevor <https://github.com/15987632>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -22,47 +24,19 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package com.partydefencetracker;
 
-import net.runelite.client.config.Config;
-import net.runelite.client.config.ConfigGroup;
-import net.runelite.client.config.ConfigItem;
-import net.runelite.client.config.Range;
+import lombok.EqualsAndHashCode;
+import lombok.Value;
+import net.runelite.client.party.messages.PartyMemberMessage;
+import net.runelite.client.plugins.specialcounter.SpecialWeapon;
 
-@ConfigGroup("defencetracker")
-public interface DefenceTrackerConfig extends Config
+@Value
+@EqualsAndHashCode(callSuper = true)
+public class RedKerisUpdate extends PartyMemberMessage
 {
-	@Range(max = 50, min = 1)
-	@ConfigItem(
-			name = "Low Defence Threshold",
-			keyName = "lowDef",
-			description = "Sets when you want the defence to appear as yellow (low defence).",
-			position = 1
-	)
-	default int lowDef()
-	{
-		return 10;
-	}
-
-	@ConfigItem(
-			keyName = "vulnerability",
-			name = "Show Vulnerability",
-			description = "Displays an infobox when you successfully land vulnerability",
-			position = 2
-	)
-	default boolean vulnerability()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-			keyName = "redKeris",
-			name = "Show Red Keris",
-			description = "Displays an infobox when you successfully land a Red Keris in ToA",
-			position = 3
-	)
-	default boolean redKeris()
-	{
-		return true;
-	}
+    int npcIndex;
+    //private final SpecialWeapon weapon;
+    int hit;
+    int world;
+    int playerId;
 }
