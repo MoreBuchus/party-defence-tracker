@@ -89,7 +89,7 @@ public class DefenceTrackerPlugin extends Plugin
 			"Abyssal Sire", "Callisto", "Cerberus", "Chaos Elemental", "Corporeal Beast", "General Graardor", "Giant Mole",
 			"Kalphite Queen", "King Black Dragon", "K'ril Tsutsaroth", "Sarachnis", "Venenatis", "Vet'ion", "Vet'ion Reborn",
 			"The Maiden of Sugadinti", "Pestilent Bloat", "Nylocas Vasilias", "Sotetseg", "Xarpus",
-			"Great Olm (Left claw)", "Tekton", "Tekton (enraged)"));
+			"Great Olm (Left claw)", "Great Olm (Right claw)", "Ice demon", "Abyssal portal", "Guardian", "Tekton", "Tekton (enraged)"));
 	public boolean hmXarpus = false;
 
 	private static final int MAIDEN_REGION = 12613;
@@ -290,7 +290,7 @@ public class DefenceTrackerPlugin extends Plugin
 					return;
 				}
 
-				if (((boss.equals("Tekton") || boss.contains("Great Olm")) && client.getVarbitValue(Varbits.IN_RAID) != 1) ||
+				if (((boss.equals("Tekton") || boss.contains("Great Olm") || boss.equals("Ice Demon") || boss.equals("Abyssal portal") || boss.equals("Guardian"))) && client.getVarbitValue(Varbits.IN_RAID) != 1) ||
 						((boss.contains("The Maiden of Sugadinti") || boss.contains("Pestilent Bloat") || boss.contains("Nylocas Vasilias")
 								|| boss.contains("Sotetseg") || boss.contains("Xarpus")) && client.getVarbitValue(Varbits.THEATRE_OF_BLOOD) != 2))
 				{
@@ -363,12 +363,44 @@ public class DefenceTrackerPlugin extends Plugin
 								bossDef = bossDef * 1.5;
 							}
 							break;
+						case "Great Olm (Right claw)":
+							bossDef = 175 * (1 + (.01 * (client.getVarbitValue(5424) - 1)));
+
+							if (isInCm)
+							{
+								bossDef = bossDef * 1.5;
+							}
+							break;
 						case "Tekton":
 							bossDef = 205 * (1 + (.01 * (client.getVarbitValue(5424) - 1)));
 
 							if (isInCm)
 							{
 								bossDef = bossDef * 1.2;
+							}
+							break;
+						case "Ice Demon":
+							bossDef = 160 * (1 + (.01 * (client.getVarbitValue(5424) - 1)));
+
+							if (isInCm)
+							{
+								bossDef = bossDef * 1.5;
+							}
+							break;
+						case "Abyssal portal":
+							bossDef = 176 * (1 + (.01 * (client.getVarbitValue(5424) - 1)));
+
+							if (isInCm)
+							{
+								bossDef = bossDef * 1.5;
+							}
+							break;
+						case "Guardian":
+							bossDef = 100 * (1 + (.01 * (client.getVarbitValue(5424) - 1)));
+
+							if (isInCm)
+							{
+								bossDef = bossDef * 1.5;
 							}
 							break;
 					}
@@ -450,7 +482,7 @@ public class DefenceTrackerPlugin extends Plugin
 	@Subscribe
 	private void onVarbitChanged(VarbitChanged e)
 	{
-		if ((client.getVarbitValue(Varbits.IN_RAID) != 1 && (boss.equals("Tekton") || boss.equals("Great Olm (Left claw)")))
+		if ((client.getVarbitValue(Varbits.IN_RAID) != 1 && (boss.equals("Tekton") || boss.contains("Great Olm") || boss.equals("Ice Demon") || boss.equals("Abyssal portal") || boss.equals("Guardian")))
 				|| (boss.equals("The Maiden of Sugadinti") && !isInMaiden()) || (boss.equals("Pestilent Bloat") && !isInBloat())
 				|| (boss.equals("Nylocas Vasilias") && !isInNylo()) || (boss.equals("Sotetseg") && !isInOverWorld() && !isInUnderWorld())
 				|| (boss.equals("Xarpus") && !isInXarpus()))
