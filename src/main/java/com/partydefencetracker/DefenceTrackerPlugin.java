@@ -80,6 +80,7 @@ public class DefenceTrackerPlugin extends Plugin
 	public String boss = "";
 	public String specWep = "";
 	public double bossDef = -1;
+	public double bossDefMaxReduction = -1;
 	public DefenceInfoBox box = null;
 	private VulnerabilityInfoBox vulnBox = null;
 	public SpritePixels vuln = null;
@@ -89,7 +90,7 @@ public class DefenceTrackerPlugin extends Plugin
 			"Abyssal Sire", "Callisto", "Cerberus", "Chaos Elemental", "Corporeal Beast", "General Graardor", "Giant Mole",
 			"Kalphite Queen", "King Black Dragon", "K'ril Tsutsaroth", "Sarachnis", "Venenatis", "Vet'ion", "Vet'ion Reborn",
 			"The Maiden of Sugadinti", "Pestilent Bloat", "Nylocas Vasilias", "Sotetseg", "Xarpus",
-			"Great Olm (Left claw)", "Tekton", "Tekton (enraged)"));
+			"Great Olm (Left claw)", "Tekton", "Tekton (enraged)", "Akkha", "Ba-Ba", "Kephri", "Zebak", "Obelisk_(Tombs_of_Amascut)", "Elidinis' Warden", "Elidinis' Warden (enraged)", "Tumeken's Warden", "Tumeken's Warden (enraged)"));
 	public boolean hmXarpus = false;
 
 	private static final int MAIDEN_REGION = 12613;
@@ -131,6 +132,7 @@ public class DefenceTrackerPlugin extends Plugin
 		infoBoxManager.removeInfoBox(vulnBox);
 		boss = "";
 		bossDef = -1;
+		bossDefMaxReduction = -1;
 		specWep = "";
 		box = null;
 		vulnBox = null;
@@ -305,45 +307,58 @@ public class DefenceTrackerPlugin extends Plugin
 						case "Sotetseg":
 						case "General Graardor":
 							bossDef = 250;
+							bossDefMaxReduction = 0;
 							break;
 						case "Callisto":
 							bossDef = 440;
+							bossDefMaxReduction = 0;
 							break;
 						case "Cerberus":
 							bossDef = 110;
+							bossDefMaxReduction = 0;
 							break;
 						case "Chaos Elemental":
 						case "K'ril Tsutsaroth":
 							bossDef = 270;
+							bossDefMaxReduction = 0;
 							break;
 						case "Corporeal Beast":
 							bossDef = 310;
+							bossDefMaxReduction = 0;
 							break;
 						case "Giant Mole":
 						case "The Maiden of Sugadinti":
 							bossDef = 200;
+							bossDefMaxReduction = 0;
 							break;
 						case "Kalphite Queen":
 							bossDef = 300;
+							bossDefMaxReduction = 0;
 							break;
 						case "King Black Dragon":
 							bossDef = 240;
+							bossDefMaxReduction = 0;
 							break;
 						case "Sarachnis":
 							bossDef = 150;
+							bossDefMaxReduction = 0;
 							break;
 						case "Venenatis":
 							bossDef = 490;
+							bossDefMaxReduction = 0;
 							break;
 						case "Vet'ion":
 						case "Vet'ion Reborn":
 							bossDef = 395;
+							bossDefMaxReduction = 0;
 							break;
 						case "Pestilent Bloat":
 							bossDef = 100;
+							bossDefMaxReduction = 0;
 							break;
 						case "Nylocas Vasilias":
 							bossDef = 50;
+							bossDefMaxReduction = 0;
 							break;
 						case "Xarpus":
 							if (hmXarpus)
@@ -354,6 +369,7 @@ public class DefenceTrackerPlugin extends Plugin
 							{
 								bossDef = 250;
 							}
+							bossDefMaxReduction = 0;
 							break;
 						case "Great Olm (Left claw)":
 							bossDef = 175 * (1 + (.01 * (client.getVarbitValue(5424) - 1)));
@@ -362,6 +378,7 @@ public class DefenceTrackerPlugin extends Plugin
 							{
 								bossDef = bossDef * 1.5;
 							}
+							bossDefMaxReduction = 0;
 							break;
 						case "Tekton":
 							bossDef = 205 * (1 + (.01 * (client.getVarbitValue(5424) - 1)));
@@ -370,6 +387,43 @@ public class DefenceTrackerPlugin extends Plugin
 							{
 								bossDef = bossDef * 1.2;
 							}
+							bossDefMaxReduction = 0;
+							break;
+						case "Akkha":
+							bossDef = 80;
+							bossDefMaxReduction = 10;
+							break;
+						case "Ba-Ba":
+							bossDef = 80;
+							bossDefMaxReduction = 20;
+							break;
+						case "Kephri":
+							bossDef = 80;
+							bossDefMaxReduction = 20;
+							break;
+						case "Zebak":
+							bossDef = 70;
+							bossDefMaxReduction = 20;
+							break;
+						case "Obelisk_(Tombs_of_Amascut)":
+							bossDef = 100;
+							bossDefMaxReduction = 40;
+							break;
+						case "Elidinis' Warden":
+							bossDef = 150;
+							bossDefMaxReduction = 30;
+							break;
+						case "Elidinis' Warden (enraged)":
+							bossDef = 150;
+							bossDefMaxReduction = 60;
+							break;
+						case "Tumeken's Warden":
+							bossDef = 150;
+							bossDefMaxReduction = 30;
+							break;
+						case "Tumeken's Warden (enraged)":
+							bossDef = 150;
+							bossDefMaxReduction = 60;
 							break;
 					}
 				}
@@ -435,12 +489,9 @@ public class DefenceTrackerPlugin extends Plugin
 					bossDef -= bossDef * .1;
 				}
 
-				if (bossDef < 0)
-				{
-					bossDef = 0;
-				}
+				bossDef = Math.max(bossDefMaxReduction, bossDef);
 				infoBoxManager.removeInfoBox(box);
-				box = new DefenceInfoBox(skillIconManager.getSkillImage(Skill.DEFENCE), this, Math.round(bossDef), config);
+				box = new DefenceInfoBox(skillIconManager.getSkillImage(Skill.DEFENCE), this, Math.round(bossDef), Math.round(bossDefMaxReduction), config);
 				box.setTooltip(ColorUtil.wrapWithColorTag(boss, Color.WHITE));
 				infoBoxManager.addInfoBox(box);
 			}

@@ -20,10 +20,11 @@ public class DefenceInfoBox extends InfoBox
     @Setter
     private long count;
 
-    public DefenceInfoBox(BufferedImage image, Plugin plugin, long count, DefenceTrackerConfig config)
+    public DefenceInfoBox(BufferedImage image, Plugin plugin, long count, long zeroValue, DefenceTrackerConfig config)
     {
         super(image, plugin);
         this.count = count;
+        this.zeroValue = zeroValue;
         this.config = config;
     }
 
@@ -36,7 +37,7 @@ public class DefenceInfoBox extends InfoBox
     @Override
     public Color getTextColor()
     {
-        if (count == 0)
+        if (count == 0 || count == zeroValue)
         {
             return Color.GREEN;
         }
